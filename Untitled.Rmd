@@ -1,0 +1,479 @@
+---
+title: "Power_Self_Other_Rating"
+author: "Annika Frach"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(lme4)
+library(lme4)
+library(simr)
+```
+
+
+##Participant level predictors
+```{r cars}
+set.seed(123)
+
+n_participants <- 100
+n_addictions <- 10
+
+# Level-2 predictors: HEXACO and PID-5 raw scores (Ashton et al., 2012)
+personality <- data.frame(
+  target_id = 1:n_participants,
+  HEXACO1 = rnorm(n_participants, 3.20, .65),
+  HEXACO2 = rnorm(n_participants, 3.32, .63),
+  HEXACO3 = rnorm(n_participants, 3.39, .65),
+  HEXACO4 = rnorm(n_participants, 2.96, .57),
+  HEXACO5 = rnorm(n_participants, 3.48, .54),
+  HEXACO6 = rnorm(n_participants, 3.19, .63),
+  PID5_1 = rnorm(n_participants, 1.30, .41),
+  PID5_2 = rnorm(n_participants, .80, .44),
+  PID5_3 = rnorm(n_participants, .87, .46),
+  PID5_4 = rnorm(n_participants, 1.27, .36),
+  PID5_5 = rnorm(n_participants, .96, .56)
+)
+
+```
+
+## Add addictions
+```{r pressure, echo=FALSE}
+dat <- personality %>%
+  slice(rep(1:n(), each = n_addictions)) %>%
+  mutate(addiction = factor(rep(1:n_addictions, times = n_participants)))
+
+```
+
+## Self rating
+```{r pressure, echo=FALSE}
+mean_self <- 2.58
+sd_self <- 0.69
+
+dat <- dat %>%
+  group_by(target_id) %>%
+  mutate(
+    self_rating = rnorm(n_addictions, mean = mean_self, sd = sd_self)
+  ) %>%
+  ungroup()
+```
+
+
+## Other rating
+```{r pressure, echo=FALSE}
+## scaling self ratings first
+dat <- dat %>%
+  mutate(
+    self_rating_s = scale(self_rating, center = TRUE, scale = TRUE),
+    addiction_n = as.numeric(addiction)
+  )
+
+
+r_so <- 0.38
+interaction_effect <- 0.2
+
+dat <- dat %>%
+  rowwise() %>%
+  mutate(
+    other_rating = rnorm(
+      1,
+      mean = 2.58 +                        # baseline mean
+             r_so * (self_rating - mean_self) +  # self-other correlation
+             interaction_effect * (self_rating * as.numeric(addiction)), # interaction
+      sd = sqrt((1 - r_so^2) * sd_self^2)
+    )
+  ) %>%
+  ungroup()
+
+
+
+
+
+
+
+```
+
+
+## Correlation Self-other rating
+```{r pressure, echo=FALSE}
+# 
+# mean_other <- 2.28
+# sd_other <- 0.88
+# 
+# dat <- dat %>%
+#   group_by(target_id) %>%
+#   mutate(
+#     other_rating = rnorm(n_addictions, mean = mean_other, sd = sd_other)
+#   ) %>%
+#   ungroup()
+# 
+# 
+# 
+# r_so <- 0.38  # self-other correlation (Horwood et al., 2020)
+# 
+# dat <- dat %>%
+#   rowwise() %>%
+#   mutate(
+#     other_rating = rnorm(1,
+#                          mean = 2.58 + r_so*(self_rating - mean_self),
+#                          sd = sqrt((1 - r_so^2) * sd_self^2))
+#   ) %>%
+#   ungroup()
+# 
+# interaction_effect <- 0.2  # example weight
+# dat <- dat %>%
+#   rowwise() %>%
+#   mutate(
+#     other_rating = rnorm(1,
+#                          mean = 2.58 +
+#                                 r_so*(self_rating - mean_self) +
+#                                 interaction_effect * (self_rating * addiction),
+#                          sd = sqrt((1 - r_so^2) * sd_self^2))
+#   ) %>%
+#   ungroup()
+```
+
+
+## Random intercept and slope
+
+```{r pressure, echo=FALSE}
+# Random effects for participants
+rand_int <- rnorm(n_participants, 0, sqrt(0.5))   # ICC = 0.5
+rand_slope <- rnorm(n_participants, 0, sqrt(0.02)) # small slope variance
+
+dat <- dat %>%
+  mutate(
+    rand_int = rand_int[target_id],
+    rand_slope = rand_slope[target_id],
+    other_rating = other_rating + rand_int + rand_slope * self_rating
+  )
+```
+
+### personality effect
+```{r pressure, echo=FALSE}
+# Relationship strength between addiction and personality
+r_values <- c(0.15, 0.20, 0.30)
+datasets <- list()
+
+for (r_p in r_values) {
+  dat_temp <- dat %>%
+    mutate(
+      other_rating_adj = other_rating +
+        r_p * HEXACO1 +
+        r_p * HEXACO2 +
+        r_p * HEXACO3 +
+        r_p * HEXACO4 +
+        r_p * HEXACO5 +
+        r_p * HEXACO6 +
+        r_p * PID5_1 +
+        r_p * PID5_2 +
+        r_p * PID5_3 +
+        r_p * PID5_4 +
+        r_p * PID5_5  # simplified example; can add more HEXACO/PID5
+    )
+  datasets[[paste0("r_", r_p)]] <- dat_temp
+}
+```
+## Fit Your Multilevel Model\
+
+Use other_rating (not other_rating_adj) for testing interaction power.
+
+For personality effects, use other_rating_adj.
+```{r pressure, echo=FALSE}
+model1 <- lmer(
+  other_rating ~ self_rating * addiction +
+    HEXACO1 + HEXACO2 + HEXACO3 + HEXACO4 + HEXACO5 + HEXACO6 +
+    PID5_1 + PID5_2 + PID5_3 + PID5_4 + PID5_5 +
+    (1 + self_rating | target_id),
+  data = datasets$r_0.2,  # example: dataset with r=0.20
+   REML = TRUE
+)
+
+model2 <- lmer(
+  other_rating ~ self_rating * addiction +
+    HEXACO1 + HEXACO2 + HEXACO3 + HEXACO4 + HEXACO5 + HEXACO6 +
+    PID5_1 + PID5_2 + PID5_3 + PID5_4 + PID5_5 +
+    (1 | target_id),
+  data = datasets$r_0.2,  # example: dataset with r=0.20
+   REML = TRUE
+)
+
+
+model3 <- lmer(
+  other_rating ~ self_rating * addiction_n +
+    (1 | target_id),
+  data = datasets$r_0.2,  # example: dataset with r=0.20
+   REML = TRUE
+)
+summary(model1)
+```
+##Costum test function
+```{r pressure, echo=FALSE}
+test_interaction <- function(fm) {
+  out <- tryCatch({
+    fm_ml <- refitML(fm)  
+    reduced <- update(fm_ml, . ~ . - self_rating:addiction)
+    fm0_ml <- update(reduced, REML = FALSE)
+    fm_ml  <- update(fm_ml,  REML = FALSE)
+
+    pval <- anova(fm0_ml, fm_ml)$`Pr(>Chisq)`[2]
+    decision <- (!is.na(pval) && pval < 0.05)
+    attr(decision, "text") <- "Interaction: self_rating × addiction"
+    decision
+  }, error = function(e) {
+    # if LRT fails, count as non-significant
+    decision <- FALSE
+    attr(decision, "text") <- "Interaction (failed fit)"
+    decision
+  })
+  return(out)
+}
+
+# Function to run power for one sample size
+run_power_for_n <- function(base_model, n_target, nsim = 200) {
+  # Extend model to desired sample size
+  mod_ext <- extend(base_model, along = "target_id", n = n_target)
+  
+  # Run power simulation
+  ps <- powerSim(mod_ext, test = test_interaction, nsim = nsim)
+  return(ps)
+}
+
+# Vector of sample sizes to explore
+sample_sizes <- c( 10000, 1000000)
+
+# Loop through sample sizes and store results
+power_results <- list()
+for (n in sample_sizes) {
+  cat("Running power for target_id =", n, "...\n")
+  ps <- run_power_for_n(base_model = model3, n_target = n, nsim = 200)
+  power_results[[as.character(n)]] <- ps
+  print(ps)
+}
+
+# Optional: extract a quick summary table
+summary_table <- data.frame(
+  N = sample_sizes,
+  Power = sapply(power_results, function(x) x$power)
+)
+print(summary_table)
+```
+### new try with monte carlo simulation
+```{r pressure, echo=FALSE}
+library(dplyr)
+library(lme4)
+
+set.seed(123)
+
+# ---------------------------
+# 1. Simulation parameters
+# ---------------------------
+n_participants <- 10
+n_addictions <- 10
+nsim <- 200            # number of Monte Carlo simulations
+alpha <- 0.05          # significance threshold
+r_so <- 0.38           # self-other correlation (Horwood et al., 2020)
+interaction_effect <- 0.2  # effect size for self_rating × addiction
+sd_self <- 0.69
+sd_other <- 0.88
+icc <- 0.5             # participant random intercept variance
+
+# ---------------------------
+# 2. Generate participant-level random intercepts
+# ---------------------------
+rand_int <- rnorm(n_participants, 0, sqrt(icc))
+
+# ---------------------------
+# 3. Initialize results
+# ---------------------------
+significant <- numeric(nsim)
+
+# ---------------------------
+# 4. Monte Carlo simulation loop
+# ---------------------------
+for(sim in 1:nsim) {
+  
+  # Participant-level predictors
+  dat <- data.frame(
+    target_id = rep(1:n_participants, each = n_addictions),
+    addiction = factor(rep(1:n_addictions, times = n_participants))
+  )
+  
+  # Self-rating per participant per addiction
+  dat <- dat %>%
+    group_by(target_id) %>%
+    mutate(
+      self_rating = rnorm(n_addictions, mean = 2.58, sd = sd_self)
+    ) %>%
+    ungroup()
+  
+  # Random intercept per participant
+  dat <- dat %>%
+    mutate(rand_int = rand_int[target_id])
+  
+  # Generate other_rating including interaction
+  dat <- dat %>%
+    rowwise() %>%
+    mutate(
+      other_rating = rnorm(1,
+                           mean = 2.28 + 
+                                  r_so * (self_rating - 2.58) + 
+                                  interaction_effect * as.numeric(self_rating) * as.numeric(addiction) +
+                                  rand_int,
+                           sd = sd_other)
+    ) %>%
+    ungroup()
+  
+  # ---------------------------
+  # 5. Fit model and test interaction
+  # ---------------------------
+  model <- try(lmer(other_rating ~ self_rating * addiction + (1 | target_id),
+                    data = dat, REML = FALSE), silent = TRUE)
+  
+  if(inherits(model, "try-error")) {
+    significant[sim] <- NA
+  } else {
+    # LRT for interaction
+    reduced <- update(model, . ~ . - self_rating:addiction)
+    lrt <- anova(reduced, model)
+    pval <- lrt$`Pr(>Chisq)`[2]
+    significant[sim] <- ifelse(!is.na(pval) & pval < alpha, 1, 0)
+  }
+  
+}
+
+# ---------------------------
+# 6. Compute empirical power
+# ---------------------------
+empirical_power <- mean(significant, na.rm = TRUE)
+empirical_power
+
+```
+
+##another try with monte carlo
+```{r pressure, echo=FALSE}
+# required packages
+library(lme4)
+library(dplyr)
+
+set.seed(123)
+
+# ---- Simulation function for one dataset ----
+make_data <- function(n_participants = 100,
+                      n_addictions = 10,
+                      r_so = 0.38,                  # desired self-other correlation (informational)
+                      interaction_effect = 0.2,     # effect in standardized units
+                      sd_self = 0.69,
+                      icc = 0.5) {
+
+  # baseline residual SD chosen so that self-other correlation approx r_so
+  resid_sd <- sqrt((1 - r_so^2) * sd_self^2)
+
+  # build rows
+  dat <- expand.grid(
+    target_id = 1:n_participants,
+    addiction = 1:n_addictions
+  ) %>%
+    arrange(target_id, addiction)
+
+  # simulate self rating (raw) per row
+  dat$self_rating <- rnorm(nrow(dat), mean = 2.58, sd = sd_self)
+
+  # standardize within the whole dataset (or within-person if desired)
+  dat <- dat %>% mutate(
+    self_z = as.numeric(scale(self_rating)),
+    addiction_z = as.numeric(scale(addiction))
+  )
+
+  # random intercepts per participant (draw new each dataset)
+  rand_int_sd <- sqrt(icc)            # note: icc here is variance on outcome scale approx
+  rand_ints <- rnorm(n_participants, mean = 0, sd = rand_int_sd)
+  dat$rand_int <- rand_ints[dat$target_id]
+
+  # generate other_rating (outcome)
+  dat$other_rating <- with(dat,
+    rnorm(nrow(dat),
+          mean = 2.58 + r_so * self_z + interaction_effect * (self_z * addiction_z) + rand_int,
+          sd = resid_sd)
+  )
+
+  # make factor addiction for model
+  dat$addiction_f <- factor(dat$addiction)
+
+  return(dat)
+}
+
+# ---- One Monte Carlo run that returns p-value or NA (safe) ----
+run_one <- function(n_participants, n_addictions, r_so, interaction_effect) {
+  dat <- make_data(n_participants = n_participants,
+                   n_addictions = n_addictions,
+                   r_so = r_so,
+                   interaction_effect = interaction_effect)
+
+  # fit full & reduced; use REML = FALSE for LRT
+  fit_full <- try(lmer(other_rating ~ self_z * addiction_z + (1 | target_id),
+                       data = dat, REML = FALSE), silent = TRUE)
+
+  if(inherits(fit_full, "try-error")) return(NA_real_)
+
+  fit_red <- try(update(fit_full, . ~ . - self_z:addiction_z), silent = TRUE)
+  if(inherits(fit_red, "try-error")) return(NA_real_)
+
+  # LRT
+  an <- try(anova(fit_red, fit_full), silent = TRUE)
+  if(inherits(an, "try-error")) return(NA_real_)
+  pval <- an$`Pr(>Chisq)`[2]
+  if(is.na(pval)) return(NA_real_)
+  return(pval)
+}
+
+# ---- Grid Monte Carlo power function ----
+grid_power <- function(sample_sizes = c(30,50,100,200),
+                       effect_sizes = c(0.1, 0.2, 0.3),
+                       n_addictions = 10,
+                       r_so = 0.38,
+                       nsim = 500) {
+
+  out <- expand.grid(N = sample_sizes, effect = effect_sizes, stringsAsFactors = FALSE)
+  out$power <- NA_real_
+  out$n_sims <- nsim
+  out$n_errors <- NA_integer_
+
+  row_idx <- 1
+  for(N in sample_sizes) {
+    for(eff in effect_sizes) {
+      cat("Running N =", N, "effect =", eff, "nsim =", nsim, "...\n")
+      pvals <- rep(NA_real_, nsim)
+      for(i in seq_len(nsim)) {
+        pvals[i] <- run_one(n_participants = N, n_addictions = n_addictions,
+                            r_so = r_so, interaction_effect = eff)
+      }
+      n_ok <- sum(!is.na(pvals))
+      n_err <- sum(is.na(pvals))
+      pow_est <- if(n_ok > 0) mean(pvals[!is.na(pvals)] < 0.05) else NA_real_
+      out$power[row_idx] <- pow_est
+      out$n_errors[row_idx] <- n_err
+      cat(" -> power =", pow_est, "n_ok=", n_ok, "n_err=", n_err, "\n\n")
+      row_idx <- row_idx + 1
+    }
+  }
+  return(out)
+}
+
+# ---- Example run (use small nsim for quick debugging) ----
+# For final results use nsim >= 1000
+results <- grid_power(sample_sizes = c(30, 50, 100, 200),
+                      effect_sizes = c(0.1, 0.2, 0.3),
+                      n_addictions = 10,
+                      r_so = 0.38,
+                      nsim = 200)
+
+# Save results
+write.csv(results, "power_grid_results.csv", row.names = FALSE)
+print(results)
+
+
+```
