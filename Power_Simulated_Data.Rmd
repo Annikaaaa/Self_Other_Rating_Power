@@ -20,7 +20,7 @@ library(simr)
 set.seed(123)
 
 n_participants <- 100
-n_addictions <- 10
+n_addictions <- 2
 
 # Level-2 predictors: HEXACO and PID-5 raw scores (Ashton et al., 2012)
 personality <- data.frame(
@@ -210,12 +210,12 @@ model3 <- lmer(
 )
 summary(model1)
 ```
-##Costum test function
+##Custom test function
 ```{r pressure, echo=FALSE}
 test_interaction <- function(fm) {
   out <- tryCatch({
     fm_ml <- refitML(fm)  
-    reduced <- update(fm_ml, . ~ . - self_rating:addiction)
+    reduced <- update(fm_ml, . ~ . - self_rating:addiction_n)
     fm0_ml <- update(reduced, REML = FALSE)
     fm_ml  <- update(fm_ml,  REML = FALSE)
 
