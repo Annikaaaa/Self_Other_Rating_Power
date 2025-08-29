@@ -77,7 +77,7 @@ dat <- dat %>%
 dat <- dat %>%
   mutate(
     self_rating_s = scale(self_rating_obs, center = TRUE, scale = TRUE),
-    addiction_n = as.numeric(addiction)
+    addiction_n = (addiction)
   )
 
 
@@ -85,15 +85,34 @@ r_so <- 0.20
 interaction_effect <- 0.05
 resid_inflation <-1.5 #to add noise to data
 
+
+##wrong cause for numeric addiction
+# dat <- dat %>%
+#   rowwise() %>%
+#   mutate(
+#     other_rating = rnorm(
+#       1,
+#       mean = 2.28 +                        # baseline mean
+#              r_so * (self_rating - mean_self) +  # self-other correlation
+#              interaction_effect * (self_rating * (addiction_n)), # interaction
+#       sd = sqrt((1 - r_so^2) * sd_self^2) *resid_inflation
+#     )
+#   ) %>%
+#   ungroup()
+
+##new try
+# Define base interaction slopes per addiction
+interaction_effects <- runif(n_addictions, -0.05, 0.05)  # each addiction gets its own "true" interaction strength
+
 dat <- dat %>%
   rowwise() %>%
   mutate(
     other_rating = rnorm(
       1,
-      mean = 2.28 +                        # baseline mean
-             r_so * (self_rating - mean_self) +  # self-other correlation
-             interaction_effect * (self_rating * as.numeric(addiction)), # interaction
-      sd = sqrt((1 - r_so^2) * sd_self^2) *resid_inflation
+      mean = 2.28 +
+             r_so * (self_rating - mean_self) +
+             interaction_effects[as.numeric(addiction)] * self_rating,  # lookup correct slope
+      sd = sqrt((1 - r_so^2) * sd_self^2) * resid_inflation
     )
   ) %>%
   ungroup()
@@ -292,7 +311,8 @@ pc <- powerCurve(model3_ext,
 print(pc)
 plot(pc)
 
-
+pc <- powerCurve(model3_ext, fixed("self_rating"), along="target_id", nsim=200)
+plot(pc)
 
 
 
@@ -313,8 +333,7 @@ print(pc)
 plot(pc)
 
 
-pc <- powerCurve(model3_ext, fixed("self_rating"), along="target_id", nsim=200)
-plot(pc)
+
 
 
 pc <- powerCurve(model5_ext, 
